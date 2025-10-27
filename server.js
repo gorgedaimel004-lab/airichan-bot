@@ -12,8 +12,10 @@ const {
   META_PAGE_TOKEN,
   OPENAI_API_KEY,
   ELEVEN_API_KEY,
+  ELEVEN_VOICE_ID,         // <-- añade esto
   BASE_URL = ""
 } = process.env;
+
 
 // Simple in-memory memory store
 const memory = new Map(); // psid -> { name, likes:[], last:[] }
