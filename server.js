@@ -181,21 +181,31 @@ app.use("/static", express.static(path.join(__dirname, "static")));
 // ElevenLabs TTS
 async function tts(text, style = "bright") {
   if (!ELEVEN_API_KEY) return null;
-  const voiceId = "21m00Tcm4TlvDq8ikWAM"; // example voice
+
+  const voiceId = ELEVEN_VOICE_ID || "21m00Tcm4TlvDq8ikWAM"; // fallback
   const fileName = `voice_${Date.now()}.mp3`;
   const outPath = path.join(__dirname, "static", fileName);
 
   const styleMap = { soft: 0.2, warm: 0.4, bright: 0.6, whisper: 0.1, energetic: 0.8 };
   const styleVal = styleMap[style] ?? 0.5;
 
+  const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
+
   const resp = await axios.post(
-    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+    url,
     {
       text,
       model_id: "eleven_multilingual_v2",
       voice_settings: { stability: 0.5, similarity_boost: 0.8, style: styleVal, use_speaker_boost: true }
     },
-    { responseType: "arraybuffer", headers: { "xi-api-key": ELEVEN_API_KEY, "Content-Type": "application/json" } }
+    {
+      responseType: "arraybuffer",
+      headers: {
+        "xi-api-key": ELEVEN_API_KEY,        // <- header correcto
+        "Accept": "audio/mpeg",
+        "Content-Type": "application/json"
+      }
+    }
   );
 
   const fs = await import("fs");
@@ -206,4 +216,3 @@ async function tts(text, style = "bright") {
   return `${BASE_URL}/static/${fileName}`;
 }
 
-app.listen(PORT, () => console.log(`Airi-chan running on :${PORT}`));
