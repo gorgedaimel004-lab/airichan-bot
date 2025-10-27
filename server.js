@@ -218,3 +218,7 @@ async function tts(text, style = "bright") {
   return `${BASE_URL}/static/${fileName}`;
 }
 
+const PORT_FINAL = process.env.PORT || PORT || 10000;
+app.listen(PORT_FINAL, () => {
+  console.log(`Airi-chan corriendo en: ${PORT_FINAL}`);
+});
