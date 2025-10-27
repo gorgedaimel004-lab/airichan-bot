@@ -1,23 +1,35 @@
+// server.js — Airi-chan Bot (Messenger) ✅
+
 import express from "express";
 import axios from "axios";
 import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 dotenv.config();
 
-const app = express();
-app.use(express.json({ verify: (req, res, buf) => (req.rawBody = buf) }));
-
+// ---- Entorno ---------------------------------------------------------------
 const {
   PORT = 3000,
   VERIFY_TOKEN = "AIRICHAN123",
   META_PAGE_TOKEN,
   OPENAI_API_KEY,
+  // Voz (opcional)
+  ENABLE_TTS = "false",       // "true" para activar TTS
   ELEVEN_API_KEY,
-  ELEVEN_VOICE_ID,         // <-- añade esto
-  BASE_URL = ""
+  ELEVEN_VOICE_ID,            // p.ej. "21m00Tcm4TlvDq8ikWAM"
+  BASE_URL = ""               // p.ej. "https://airichan-bot.onrender.com"
 } = process.env;
 
+// ---- App -------------------------------------------------------------------
+const app = express();
+app.use(express.json({ verify: (req, res, buf) => (req.rawBody = buf) }));
 
-// Simple in-memory memory store
+// Static para servir MP3 cuando TTS esté activo
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+app.use("/static", express.static(path.join(__dirname, "static")));
+
+// Memoria simple en RAM
 const memory = new Map(); // psid -> { name, likes:[], last:[] }
 
 // Health check
@@ -51,14 +63,17 @@ app.post("/webhook", async (req, res) => {
           const reply = await generateAiriReply(senderId, text);
           await sendText(senderId, reply.reply_text);
 
-          try {
-            const audioUrl = await tts(reply.reply_text, reply.speech_style);
-            if (audioUrl) await sendAudio(senderId, audioUrl);
-          } catch (e) {
-            console.error("TTS error:", e?.response?.data || e.message);
+          // TTS opcional
+          if (ENABLE_TTS.toLowerCase() === "true") {
+            try {
+              const audioUrl = await tts(reply.reply_text, reply.speech_style);
+              if (audioUrl) await sendAudio(senderId, audioUrl);
+            } catch (e) {
+              console.error("TTS error:", e?.response?.data || e.message);
+            }
           }
 
-          // Quick replies using followups if present
+          // Quick replies
           if (reply.followups?.length) {
             await sendQuickReplies(senderId, "¿Qué te gustaría ahora? 💭", reply.followups);
           }
@@ -74,9 +89,10 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-// Generate reply via OpenAI
+// ---- OpenAI: generación de respuesta --------------------------------------
 async function generateAiriReply(userId, userText) {
   const profile = memory.get(userId) || { name: null, likes: [], last: [] };
+
   const systemPrompt = `
 Eres "Airi-chan", una waifu de anime experta en manga y anime. Bilingüe (ES/EN): contesta en el idioma del usuario.
 Prioridad: respuestas actualizadas y útiles; coqueteo suave SFW; muy amable y preocupada por ayudar.
@@ -115,7 +131,7 @@ Mensaje del usuario: "${userText}"`;
 
   const data = safeJSON(resp.data?.choices?.[0]?.message?.content);
 
-  // small memory capture
+  // Pequeña memoria
   const nameMatch = userText.match(/(?:me llamo|mi nombre es|I'm|I am)\s+([A-Za-zÁÉÍÓÚÑáéíóúñ]+)/i);
   if (nameMatch) profile.name = nameMatch[1];
   const likeMatch = userText.match(/(?:me gustan?|i like)\s+(.+)/i);
@@ -130,15 +146,15 @@ Mensaje del usuario: "${userText}"`;
     reply_text: data.reply_text || "Hola, soy Airi-chan 💕 ¿Qué te gustaría saber del anime hoy?",
     emotion: data.emotion || "feliz",
     speech_style: data.speech_style || "bright",
-    followups: Array.isArray(data.followups) ? data.followups.slice(0,3) : []
+    followups: Array.isArray(data.followups) ? data.followups.slice(0, 3) : []
   };
 }
 
 function safeJSON(s) {
-  try { return JSON.parse(s); } catch (e) { return {}; }
+  try { return JSON.parse(s); } catch { return {}; }
 }
 
-// Messenger helpers
+// ---- Messenger helpers -----------------------------------------------------
 async function sendText(psid, text) {
   await axios.post(
     `https://graph.facebook.com/v19.0/me/messages`,
@@ -165,29 +181,20 @@ async function sendAudio(psid, url) {
     `https://graph.facebook.com/v19.0/me/messages`,
     {
       recipient: { id: psid },
-      message: {
-        attachment: { type: "audio", payload: { url, is_reusable: true } }
-      }
+      message: { attachment: { type: "audio", payload: { url, is_reusable: true } } }
     },
     { params: { access_token: META_PAGE_TOKEN } }
   );
 }
 
-// Serve static files (for MP3)
-import path from "path";
-import { fileURLToPath } from "url";
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-app.use("/static", express.static(path.join(__dirname, "static")));
-
+// ---- ElevenLabs TTS (única función) ---------------------------------------
+// Si ENABLE_TTS !== "true", esta función devolverá null (no audio).
 async function tts(text, style = "bright") {
-  // Desactivar TTS temporalmente para evitar errores
-  return null;
-}
+  if (ENABLE_TTS.toLowerCase() !== "true") return null;
+  if (!ELEVEN_API_KEY || !ELEVEN_VOICE_ID || !BASE_URL) return null;
 
-  const voiceId = ELEVEN_VOICE_ID || "21m00Tcm4TlvDq8ikWAM"; // fallback
+  const voiceId = ELEVEN_VOICE_ID;
   const fileName = `voice_${Date.now()}.mp3`;
-  const outPath = path.join(__dirname, "static", fileName);
 
   const styleMap = { soft: 0.2, warm: 0.4, bright: 0.6, whisper: 0.1, energetic: 0.8 };
   const styleVal = styleMap[style] ?? 0.5;
@@ -199,12 +206,17 @@ async function tts(text, style = "bright") {
     {
       text,
       model_id: "eleven_multilingual_v2",
-      voice_settings: { stability: 0.5, similarity_boost: 0.8, style: styleVal, use_speaker_boost: true }
+      voice_settings: {
+        stability: 0.5,
+        similarity_boost: 0.8,
+        style: styleVal,
+        use_speaker_boost: true
+      }
     },
     {
       responseType: "arraybuffer",
       headers: {
-        "xi-api-key": ELEVEN_API_KEY,        // <- header correcto
+        "xi-api-key": ELEVEN_API_KEY,
         "Accept": "audio/mpeg",
         "Content-Type": "application/json"
       }
@@ -213,12 +225,12 @@ async function tts(text, style = "bright") {
 
   const fs = await import("fs");
   await fs.promises.mkdir(path.join(__dirname, "static"), { recursive: true });
-  await fs.promises.writeFile(outPath, resp.data);
+  await fs.promises.writeFile(path.join(__dirname, "static", fileName), resp.data);
 
-  if (!BASE_URL) return null;
   return `${BASE_URL}/static/${fileName}`;
 }
 
+// ---- Servidor --------------------------------------------------------------
 const PORT_FINAL = process.env.PORT || PORT || 10000;
 app.listen(PORT_FINAL, () => {
   console.log(`Airi-chan corriendo en: ${PORT_FINAL}`);
