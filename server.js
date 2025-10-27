@@ -180,9 +180,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 app.use("/static", express.static(path.join(__dirname, "static")));
 
-// ElevenLabs TTS
 async function tts(text, style = "bright") {
-  if (!ELEVEN_API_KEY) return null;
+  // Desactivar TTS temporalmente para evitar errores
+  return null;
+}
 
   const voiceId = ELEVEN_VOICE_ID || "21m00Tcm4TlvDq8ikWAM"; // fallback
   const fileName = `voice_${Date.now()}.mp3`;
